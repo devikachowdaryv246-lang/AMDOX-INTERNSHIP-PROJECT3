@@ -1,0 +1,181 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer Churn Analytics Dashboard</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Plotly.js for charts -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <!-- PapaParse for CSV parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        .chart-container { height: 400px; }
+        .kpi-card { height: 200px; }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans">
+
+    <!-- Header & Upload -->
+    <header class="bg-indigo-700 text-white p-6 shadow-lg">
+        <div class="container mx-auto flex flex-col md:flex-row justify-between items-center">
+            <h1 class="text-3xl font-bold">Churn Prediction Dashboard</h1>
+            <div class="mt-4 md:mt-0">
+                <label class="block text-sm font-medium mb-1">Upload Customer Data (CSV)</label>
+                <input type="file" id="csvUpload" accept=".csv" 
+                    class="block w-full text-sm text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"/>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto py-8 px-4">
+        <!-- Placeholder Message -->
+        <div id="welcomeMessage" class="text-center py-20">
+            <h2 class="text-2xl text-gray-600 font-semibold">Please upload a CSV file to generate the insights.</h2>
+            <p class="text-gray-500 mt-2">The dashboard will automatically populate the 8 key metrics.</p>
+        </div>
+
+        <!-- Dashboard Grid (Hidden by default) -->
+        <div id="dashboardContent" class="hidden">
+            <!-- Top Row: KPI Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div id="kpi-churn-rate" class="bg-white p-4 rounded-xl shadow-md kpi-card"></div>
+                <div id="kpi-total-customers" class="bg-white p-4 rounded-xl shadow-md flex flex-col justify-center items-center text-center">
+                    <h3 class="text-gray-500 text-lg font-medium">Total Customers</h3>
+                    <p id="val-total-customers" class="text-5xl font-bold text-indigo-600 mt-2">0</p>
+                </div>
+                <div id="kpi-avg-charges" class="bg-white p-4 rounded-xl shadow-md flex flex-col justify-center items-center text-center">
+                    <h3 class="text-gray-500 text-lg font-medium">Avg. Monthly Charge</h3>
+                    <p id="val-avg-charges" class="text-5xl font-bold text-green-600 mt-2">$0</p>
+                </div>
+            </div>
+
+            <!-- Main Charts Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- Row 1 -->
+                <div class="bg-white p-4 rounded-xl shadow-md">
+                    <h3 class="text-lg font-semibold mb-4 text-gray-700">1. Churn by Contract Type</h3>
+                    <div id="chart-contract" class="chart-container"></div>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-md">
+                    <h3 class="text-lg font-semibold mb-4 text-gray-700">2. Tenure vs. Churn Distribution</h3>
+                    <div id="chart-tenure" class="chart-container"></div>
+                </div>
+
+                <!-- Row 2 -->
+                <div class="bg-white p-4 rounded-xl shadow-md">
+                    <h3 class="text-lg font-semibold mb-4 text-gray-700">3. Churn by Payment Method</h3>
+                    <div id="chart-payment" class="chart-container"></div>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-md">
+                    <h3 class="text-lg font-semibold mb-4 text-gray-700">4. Monthly Charges vs. Churn (Outliers)</h3>
+                    <div id="chart-charges-box" class="chart-container"></div>
+                </div>
+
+                <!-- Row 3 -->
+                <div class="bg-white p-4 rounded-xl shadow-md">
+                    <h3 class="text-lg font-semibold mb-4 text-gray-700">5. Internet Service & Churn</h3>
+                    <div id="chart-internet" class="chart-container"></div>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-md">
+                    <h3 class="text-lg font-semibold mb-4 text-gray-700">6. Tech Support Impact on Retention</h3>
+                    <div id="chart-techsupport" class="chart-container"></div>
+                </div>
+
+                <!-- Row 4 -->
+                <div class="bg-white p-4 rounded-xl shadow-md lg:col-span-2">
+                    <h3 class="text-lg font-semibold mb-4 text-gray-700">7. Senior Citizen Churn Rate</h3>
+                    <div id="chart-senior" class="chart-container"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const csvUpload = document.getElementById('csvUpload');
+        const welcomeMessage = document.getElementById('welcomeMessage');
+        const dashboardContent = document.getElementById('dashboardContent');
+
+        csvUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            Papa.parse(file, {
+                header: true,
+                dynamicTyping: true,
+                complete: function(results) {
+                    processData(results.data);
+                }
+            });
+        });
+
+        function processData(data) {
+            // Clean data (remove empty rows)
+            const cleanData = data.filter(row => row.Churn !== undefined && row.Churn !== null);
+            
+            welcomeMessage.classList.add('hidden');
+            dashboardContent.classList.remove('hidden');
+
+            const churnYes = cleanData.filter(d => d.Churn === 'Yes');
+            const churnNo = cleanData.filter(d => d.Churn === 'No');
+
+            // --- 1. KPI: Churn Rate Gauge ---
+            const churnRate = (churnYes.length / cleanData.length) * 100;
+            const gaugeData = [{
+                domain: { x: [0, 1], y: [0, 1] },
+                value: churnRate,
+                title: { text: "Overall Churn Rate %", font: { size: 18 } },
+                type: "indicator",
+                mode: "gauge+number",
+                gauge: { bar: { color: "#ef4444" }, bordercolor: "gray" }
+            }];
+            Plotly.newPlot('kpi-churn-rate', gaugeData, { margin: { t: 0, b: 0, l: 30, r: 30 } });
+
+            // Stats update
+            document.getElementById('val-total-customers').innerText = cleanData.length.toLocaleString();
+            const avgCharge = cleanData.reduce((acc, curr) => acc + (curr.MonthlyCharges || 0), 0) / cleanData.length;
+            document.getElementById('val-avg-charges').innerText = `$${avgCharge.toFixed(2)}`;
+
+            // --- 2. Churn by Contract Type (Stacked Bar) ---
+            createGroupedBar('chart-contract', cleanData, 'Contract', 'Churn');
+
+            // --- 3. Tenure Distribution ---
+            const tenureTrace1 = { x: churnNo.map(d => d.tenure), name: 'Retained', type: 'histogram', opacity: 0.7, marker: {color: '#6366f1'} };
+            const tenureTrace2 = { x: churnYes.map(d => d.tenure), name: 'Churned', type: 'histogram', opacity: 0.7, marker: {color: '#ef4444'} };
+            Plotly.newPlot('chart-tenure', [tenureTrace1, tenureTrace2], { barmode: 'overlay', xaxis: {title: 'Months of Tenure'} });
+
+            // --- 4. Churn by Payment Method ---
+            createGroupedBar('chart-payment', cleanData, 'PaymentMethod', 'Churn');
+
+            // --- 5. Monthly Charges Box Plot ---
+            const boxTrace1 = { y: churnNo.map(d => d.MonthlyCharges), name: 'Retained', type: 'box', marker: {color: '#6366f1'} };
+            const boxTrace2 = { y: churnYes.map(d => d.MonthlyCharges), name: 'Churned', type: 'box', marker: {color: '#ef4444'} };
+            Plotly.newPlot('chart-charges-box', [boxTrace1, boxTrace2], { yaxis: {title: 'Monthly Charge ($)'} });
+
+            // --- 6. Internet Service ---
+            createGroupedBar('chart-internet', cleanData, 'InternetService', 'Churn');
+
+            // --- 7. Tech Support Impact ---
+            createGroupedBar('chart-techsupport', cleanData, 'TechSupport', 'Churn');
+
+            // --- 8. Senior Citizen ---
+            const seniorData = cleanData.map(d => ({...d, SeniorCitizen: d.SeniorCitizen === 1 ? 'Senior' : 'Non-Senior'}));
+            createGroupedBar('chart-senior', seniorData, 'SeniorCitizen', 'Churn');
+        }
+
+        // Helper function for categorical grouped bars
+        function createGroupedBar(divId, data, categoryField, colorField) {
+            const categories = [...new Set(data.map(d => d[categoryField]))];
+            const yesCounts = categories.map(cat => data.filter(d => d[categoryField] === cat && d[colorField] === 'Yes').length);
+            const noCounts = categories.map(cat => data.filter(d => d[categoryField] === cat && d[colorField] === 'No').length);
+
+            const trace1 = { x: categories, y: noCounts, name: 'Retained', type: 'bar', marker: {color: '#6366f1'} };
+            const trace2 = { x: categories, y: yesCounts, name: 'Churned', type: 'bar', marker: {color: '#ef4444'} };
+
+            Plotly.newPlot(divId, [trace1, trace2], { barmode: 'group', margin: { t: 10 } });
+        }
+    </script>
+</body>
+</html>
