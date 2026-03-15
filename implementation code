@@ -1,0 +1,92 @@
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import LabelEncoder
+
+# Set Page Config
+st.set_page_config(page_title="Customer Churn Predictor", layout="wide")
+
+st.title("📞 Customer Churn Prediction App")
+st.markdown("Predict whether a customer will leave or stay based on their profile.")
+
+@st.cache_data
+def load_data():
+    df = pd.read_csv('Customer Churn.csv')
+    # Preprocessing: Handle TotalCharges empty strings
+    df['TotalCharges'] = pd.to_numeric(df['TotalCharges'], errors='coerce')
+    df['TotalCharges'] = df['TotalCharges'].fillna(df['TotalCharges'].median())
+    return df
+
+data = load_data()
+
+# Sidebar for User Input
+st.sidebar.header("User Input Features")
+
+def user_input_features():
+    tenure = st.sidebar.slider("Tenure (Months)", 0, 72, 12)
+    contract = st.sidebar.selectbox("Contract", ("Month-to-month", "One year", "Two year"))
+    paperless = st.sidebar.selectbox("Paperless Billing", ("Yes", "No"))
+    monthly_charges = st.sidebar.slider("Monthly Charges ($)", 18.0, 120.0, 65.0)
+    total_charges = st.sidebar.number_input("Total Charges ($)", min_value=0.0, value=1000.0)
+    internet = st.sidebar.selectbox("Internet Service", ("DSL", "Fiber optic", "No"))
+    security = st.sidebar.selectbox("Online Security", ("Yes", "No", "No internet service"))
+    tech_support = st.sidebar.selectbox("Tech Support", ("Yes", "No", "No internet service"))
+    
+    # Feature dictionary
+    res = {
+        'tenure': tenure,
+        'Contract': contract,
+        'PaperlessBilling': paperless,
+        'MonthlyCharges': monthly_charges,
+        'TotalCharges': total_charges,
+        'InternetService': internet,
+        'OnlineSecurity': security,
+        'TechSupport': tech_support
+    }
+    return pd.DataFrame(res, index=[0])
+
+input_df = user_input_features()
+
+# Simple Model Training (On the fly for this demo)
+# In a production app, you would pre-train and save the model using pickle
+def train_model(df):
+    # Select key features for the demo
+    features = ['tenure', 'Contract', 'PaperlessBilling', 'MonthlyCharges', 'TotalCharges', 'InternetService', 'OnlineSecurity', 'TechSupport']
+    X = df[features].copy()
+    y = df['Churn'].apply(lambda x: 1 if x == 'Yes' else 0)
+    
+    # Encode categorical features
+    encoders = {}
+    for col in X.select_dtypes(include=['object']).columns:
+        le = LabelEncoder()
+        X[col] = le.fit_transform(X[col])
+        encoders[col] = le
+        
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(X, y)
+    return model, encoders
+
+model, encoders = train_model(data)
+
+# Process User Input to match Training data
+processed_input = input_df.copy()
+for col, le in encoders.items():
+    # Handle unseen labels by mapping to first known class if necessary
+    processed_input[col] = le.transform(processed_input[col])
+
+# Prediction
+if st.button("Predict Churn"):
+    prediction = model.predict(processed_input)
+    prediction_proba = model.predict_proba(processed_input)
+    
+    st.subheader("Results")
+    if prediction[0] == 1:
+        st.error(f"Prediction: **Churn** (Probability: {prediction_proba[0][1]:.2f})")
+    else:
+        st.success(f"Prediction: **Not Churn** (Probability: {prediction_proba[0][0]:.2f})")
+
+# Show raw data option
+if st.checkbox("Show Dataset"):
+    st.write(data.head())
